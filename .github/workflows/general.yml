@@ -1,14 +1,14 @@
 name: Rust CI
 
-
 on:
   push:
     branches:
-      - ci
+      - root-chapter-03-part1
   pull_request:
-    types: [opened,synchronize,reopened]
+    types: [opened, synchronize, reopened]
     branches:
-      - ci
+      - root-chapter-03-part1
+
 env:
   CARGO_TERM_COLOR: always
   SQLX_VERSION: 0.8.0
@@ -16,7 +16,6 @@ env:
   APP_USER: postgres
   APP_USER_PWD: password
   APP_DB_NAME: newsletter
-
 
 jobs:
   test:
@@ -29,46 +28,59 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: password
           POSTGRES_DB: postgres
-          # When you map ports using the ports keyword, GitHub uses the --publish command to publish the container’s ports to the Docker host
-          # Opens tcp port 5432 on the host and service container
         ports:
           - 5432:5432
-      steps:
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
 
-        - name: Check out repository code
-          uses: actions/checkout@v4
-        - name: Install Rust toolchain
-          uses: actions-rust-lang/setup-rust-toolchain@v1
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
 
-        - name: Install sqlx-cli
-          run: cargo install sqlx-cli
-             --version=${{env.SQLX_VERSION}}
-             --features= ${{ env.SQLX_FEATURES }}
-             --no-default-features
-             --locked
-        - name: Create app user in Postgres
-          run:
-            sudo apt-get install postgresql-client
-            CREATE_QUERY="CREATE USER${APP_USER} WITH PASSSWORD '${APP_USER_PWD}';"
-            PGPASSSWORD="password" psql -U "postgres" -h "localhost" -c "${CREATE_QUERY}"
-            GRANT_QUERY="ALTER USER ${APP_USER} CREATEDB;"
-            PGPASSWORD="password" psql -U "postgres" -h "localhost" -c "${GRANT_QUERY}"
-        - name: Migrate database
-          run: SKIP_DOCKER=true ./scripts/init.db.sh
-        - name: Run Tests
-          run: cargo test
-        - name: Check that queries are fresh
-          run: cargo sqlx prepare --workspace --check -- --all-targets
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install sqlx-cli
+        run: |
+          cargo install sqlx-cli \
+            --version ${{ env.SQLX_VERSION }} \
+            --features ${{ env.SQLX_FEATURES }} \
+            --no-default-features \
+            --locked
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create app user in Postgres
+        run: |
+          CREATE_QUERY="CREATE USER ${APP_USER} WITH PASSWORD '${APP_USER_PWD}';"
+          PGPASSWORD="password" psql -U postgres -h localhost -c "$CREATE_QUERY"
+          GRANT_QUERY="ALTER USER ${APP_USER} CREATEDB;"
+          PGPASSWORD="password" psql -U postgres -h localhost -c "$GRANT_QUERY"
+
+      - name: Migrate database
+        run: SKIP_DOCKER=true ./scripts/init_db.sh
+
+      - name: Run Tests
+        run: cargo test -- --nocapture
+
+      - name: Check that queries are fresh
+        run: cargo sqlx prepare --workspace --check -- --all-targets
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install the Rust Toolchain
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
+
       - name: Enforce formatting
         run: cargo fmt --check
 
@@ -76,13 +88,15 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     env:
-      SQLX_OOFLINE: true
+      SQLX_OFFLINE: true
     steps:
       - uses: actions/checkout@v4
+
       - name: Install the Rust Toolchain
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy
+
       - name: Linting
         run: cargo clippy -- -D warnings
 
@@ -98,40 +112,53 @@ jobs:
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Install the Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-
           components: llvm-tools-preview
+
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli
-          --version=${{ env.SQLX_VERSION }}
-          --features ${{ env.SQLX_FEATURES }}
-          --no-default-features
-          --locked
+        run: |
+          cargo install sqlx-cli \
+            --version ${{ env.SQLX_VERSION }} \
+            --features ${{ env.SQLX_FEATURES }} \
+            --no-default-features \
+            --locked
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
       - name: Create app user in Postgres
         run: |
-            sudo apt-get install postgresql-client
-                      
-            # Create the application user
-            CREATE_QUERY="CREATE USER ${APP_USER} WITH PASSWORD '${APP_USER_PWD}';"
-            PGPASSWORD="password" psql -U "postgres" -h "localhost" -c "${CREATE_QUERY}"
-                      
-            # Grant create db privileges to the app user
-            GRANT_QUERY="ALTER USER ${APP_USER} CREATEDB;"
-            PGPASSWORD="password" psql -U "postgres" -h "localhost" -c "${GRANT_QUERY}"
+          CREATE_QUERY="CREATE USER ${APP_USER} WITH PASSWORD '${APP_USER_PWD}';"
+          PGPASSWORD="password" psql -U postgres -h localhost -c "$CREATE_QUERY"
+          GRANT_QUERY="ALTER USER ${APP_USER} CREATEDB;"
+          PGPASSWORD="password" psql -U postgres -h localhost -c "$GRANT_QUERY"
+
       - name: Migrate database
         run: SKIP_DOCKER=true ./scripts/init_db.sh
+
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
       - name: Generate code coverage
         run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
       - name: Generate report
         run: cargo llvm-cov report --html --output-dir coverage
+
       - uses: actions/upload-artifact@v4
         with:
           name: "Coverage report"
           path: coverage/
-
